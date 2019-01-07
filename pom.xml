@@ -3,7 +3,7 @@
 
     <groupId>org.redisson</groupId>
     <artifactId>redisson-parent</artifactId>
-    <version>3.9.1</version>
+    <version>3.9.1.1-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>Redisson</name>
@@ -58,10 +58,10 @@
 
     <modules>
         <module>redisson</module>
-        <module>redisson-all</module>
-        <module>redisson-tomcat</module>
-        <module>redisson-spring-data</module>
-        <module>redisson-spring-boot-starter</module>
+        <!--<module>redisson-all</module>-->
+        <!--<module>redisson-tomcat</module>-->
+        <!--<module>redisson-spring-data</module>-->
+        <!--<module>redisson-spring-boot-starter</module>-->
     </modules>
 
     <profiles>
@@ -263,5 +263,19 @@
             </plugin>
         </plugins>
   </build>
+
+    <distributionManagement>
+        <repository>
+            <id>maven-releases</id>
+            <name>Maven Project Release</name>
+            <url>http://60.190.227.164:8088/nexus/repository/maven-releases/</url>
+        </repository>
+
+        <snapshotRepository>
+            <id>maven-snapshots</id>
+            <name>Maven Project SNAPSHOTS</name>
+            <url>http://60.190.227.164:8088/nexus/repository/maven-snapshots/</url>
+        </snapshotRepository>
+    </distributionManagement>
 
 </project>
