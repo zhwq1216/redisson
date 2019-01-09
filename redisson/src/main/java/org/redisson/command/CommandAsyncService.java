@@ -15,6 +15,7 @@
  */
 package org.redisson.command;
 
+import java.nio.channels.ClosedChannelException;
 import java.security.MessageDigest;
 import java.util.AbstractMap;
 import java.util.ArrayList;
@@ -51,6 +52,7 @@ import org.redisson.client.RedisTryAgainException;
 import org.redisson.client.WriteRedisConnectionException;
 import org.redisson.client.codec.Codec;
 import org.redisson.client.codec.StringCodec;
+import org.redisson.client.handler.ConnectionWatchdog;
 import org.redisson.client.protocol.CommandData;
 import org.redisson.client.protocol.CommandsData;
 import org.redisson.client.protocol.RedisCommand;
@@ -230,7 +232,8 @@ public class CommandAsyncService implements CommandAsyncExecutor {
         async(true, new NodeSource(slot, client), codec, command, params, mainPromise, 0, false, null);
         return mainPromise;
     }
-    
+
+    @Override
     public <T, R> RFuture<R> readAsync(RedisClient client, byte[] key, Codec codec, RedisCommand<T> command, Object... params) {
         RPromise<R> mainPromise = createPromise();
         int slot = connectionManager.calcSlot(key);
@@ -245,6 +248,7 @@ public class CommandAsyncService implements CommandAsyncExecutor {
         return mainPromise;
     }
 
+    @Override
     public <T, R> RFuture<Collection<R>> readAllAsync(RedisCommand<T> command, Object... params) {
         List<R> results = new ArrayList<R>();
         return readAllAsync(results, command, params);
@@ -390,10 +394,11 @@ public class CommandAsyncService implements CommandAsyncExecutor {
         return mainPromise;
     }
 
+    @Override
     public <V> RedisException convertException(RFuture<V> future) {
         return future.cause() instanceof RedisException
-                ? (RedisException) future.cause()
-                : new RedisException("Unexpected exception while processing command", future.cause());
+            ? (RedisException) future.cause()
+            : new RedisException("Unexpected exception while processing command", future.cause());
     }
 
     private NodeSource getNodeSource(String key) {
@@ -424,6 +429,7 @@ public class CommandAsyncService implements CommandAsyncExecutor {
         return mainPromise;
     }
 
+    @Override
     public <T, R> RFuture<R> readAsync(MasterSlaveEntry entry, Codec codec, RedisCommand<T> command, Object... params) {
         RPromise<R> mainPromise = createPromise();
         async(true, new NodeSource(entry), codec, command, params, mainPromise, 0, false, null);
@@ -465,6 +471,7 @@ public class CommandAsyncService implements CommandAsyncExecutor {
         return evalAsync(source, false, codec, evalCommandType, script, keys, params);
     }
 
+    @Override
     public <T, R> RFuture<R> evalWriteAsync(MasterSlaveEntry entry, Codec codec, RedisCommand<T> evalCommandType, String script, List<Object> keys, Object... params) {
         return evalAsync(new NodeSource(entry), false, codec, evalCommandType, script, keys, params);
     }
@@ -831,13 +838,30 @@ public class CommandAsyncService implements CommandAsyncExecutor {
         }
 
         if (!future.isSuccess()) {
+            Channel channel = future.channel();
             details.setException(new WriteRedisConnectionException(
-                    "Unable to send command! Node source: " + details.getSource() + ", connection: " + connection + 
+                "Unable to send command! Node source: " + details.getSource() + ", connection: " + connection +
                     ", command: " + details.getCommand() + ", command params: " + LogHelper.toString(details.getParams())
                     + " after " + details.getAttempt() + " retry attempts", future.cause()));
             if (details.getAttempt() == connectionManager.getConfig().getRetryAttempts()) {
                 if (!details.getAttemptPromise().tryFailure(details.getException())) {
                     log.error(details.getException().getMessage());
+                }
+
+                //closed exception try to reconnect using the connection watchdog.
+                if (future.cause() instanceof ClosedChannelException) {
+                    log.error("ClosedChannelException try to reconnect using the ConnectionWatchdog, {}",
+                        connection);
+                    ConnectionWatchdog watchDog = ConnectionWatchdog.getFrom(channel);
+                    if (watchDog != null) {
+                        channel.close();
+                        watchDog.doReconnect(channel);
+                    } else {
+                        log.error("not found ConnectionWatchdog from the channel:{}, connection:{}", channel,
+                            connection);
+                    }
+                } else {
+                    log.warn(details.getException().getMessage(), future.cause());
                 }
             }
             return;
